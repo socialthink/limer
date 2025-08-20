@@ -10,25 +10,52 @@
 #' get_session_key()
 #' }
 
-get_session_key <- function(username = getOption('lime_username'),
-                            password = getOption('lime_password')) {
-  body.json = list(method = "get_session_key",
-                   id = " ",
-                   params = list(admin = username,
-                                 password = password))
-
-    # Need to use jsonlite::toJSON because single elements are boxed in httr, which
-  # is goofy. toJSON can turn off the boxing automatically, though it's not
-  # recommended. They say to use unbox on each element, like this:
-  #   params = list(admin = unbox("username"), password = unbox("password"))
-  # But that's a lot of extra work. So auto_unbox suffices here.
-  # More details and debate: https://github.com/hadley/httr/issues/159
-  r <- POST(getOption('lime_api'), content_type_json(),
-            body = jsonlite::toJSON(body.json, auto_unbox = TRUE))
-
-  session_key <- as.character(jsonlite::fromJSON(content(r, encoding="utf-8"))$result)
-  session_cache$session_key <- session_key
-  session_key
+get_session_key <- function(username = getOption("lime_username"), password = getOption("lime_password")) {
+  
+  # API-Parameter in einem Vektor (entspricht einem JSON-Array)
+  # Die Reihenfolge ist wichtig: username, password
+  body.json <- list(
+    method = "get_session_key",
+    id = "1", # Die id kann ein beliebiger Wert sein, z.B. 1
+    params = c(username, password)
+  )
+  
+  # Sende den POST-Request an die API-Schnittstelle
+  r <- httr::POST(
+    getOption("lime_api"),
+    httr::content_type_json(),
+    body = jsonlite::toJSON(body.json, auto_unbox = TRUE)
+  )
+  
+  # Überprüfe den HTTP-Statuscode
+  if (httr::status_code(r) != 200) {
+    stop(paste("API-Fehler:", httr::status_code(r), httr::content(r, "text")))
+  }
+  
+  # Parse die JSON-Antwort
+  api_response <- jsonlite::fromJSON(httr::content(r, "text", encoding = "utf-8"))
+  
+  # Prüfe, ob die Antwort ein Fehler ist
+  if (!is.null(api_response$error)) {
+    stop(paste("Server-Fehler:", api_response$error))
+  }
+  
+  # Extrahiere den Session Key
+  session_key <- as.character(api_response$result)
+  
+  # Optional: Session Key im Cache speichern (wie in der Originalfunktion)
+  if (exists("session_cache")) {
+    session_cache$session_key <- session_key
+  }
+  
+  # >>> korrekt im limer-Cache speichern
+  ns <- asNamespace("limer")
+  if (exists("session_cache", envir = ns, inherits = FALSE)) {
+    sess_env <- get("session_cache", envir = ns)
+    sess_env$session_key <- session_key
+  }
+  
+  return(session_key)
 }
 
 # Start a new environment to hold the session key so all other functions can access it
